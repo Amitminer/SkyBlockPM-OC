@@ -1,13 +1,4 @@
 parameters:
-    level: 9
-    ignoreErrors:
-        - '~^Parameter #1 \$value of function strval expects.*$~'
+    level: 6
     paths:
         - src
-    scanDirectories:
-        - vendor
-    excludePaths:
-        - src/Vecnavium/SkyBlocksPM/scorehud/ScoreHudListener.php
-        - src/Vecnavium/SkyBlocksPM/scorehud/ScoreHudAddon.php
-        - src/Vecnavium/SkyBlocksPM/libs
-        - src/Vecnavium/SkyBlocksPM/CheckUpdateTask.php

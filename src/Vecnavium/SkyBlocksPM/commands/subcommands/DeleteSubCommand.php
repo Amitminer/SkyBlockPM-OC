@@ -36,51 +36,85 @@ class DeleteSubCommand extends BaseSubCommand {
         $plugin = $this->getOwningPlugin();
         
         $name = strval($args['name']);
-        if ($name !== $sender->getName() && !$sender->hasPermission('skyblockspm.deleteothers')) {
-            $sender->sendMessage($plugin->getMessages()->getMessage('no-perms-delete'));
+        if (!$this->validatePermissions($sender, $name, $plugin)) {
             return;
         }
+
         $skyblockPlayer = $plugin->getPlayerManager()->getPlayer($name);
-        if (!$skyblockPlayer instanceof Player) {
-            $sender->sendMessage($plugin->getMessages()->getMessage('player-not-online'));
+        if (!$this->validatePlayer($skyblockPlayer, $sender, $plugin)) {
             return;
         }
-        if ($skyblockPlayer->getSkyBlock() == '') {
-            $sender->sendMessage($plugin->getMessages()->getMessage('no-island'));
-            return;
-        }
-        $defaultWorld = $plugin->getServer()->getWorldManager()->getDefaultWorld();
-        if(!$defaultWorld instanceof World) return;
 
         $skyblock = $plugin->getSkyBlockManager()->getSkyBlockByUuid($skyblockPlayer->getSkyBlock());
         if(!$skyblock instanceof SkyBlock) return;
 
-        foreach ($skyblock->getMembers() as $member) {
-            $player = $plugin->getServer()->getPlayerExact($member);
-            if ($player instanceof P) {
-                $player->teleport($defaultWorld->getSpawnLocation());
-            }
-            if(($mPlayer = $plugin->getPlayerManager()->getPlayer($member)) instanceof Player) {
-                $mPlayer->setSkyBlock('');
-            } else {
-                // Hacky but it works.
-                $plugin->getPlayerManager()->deleteSkyBlockOffline($member);
-            }
-        }
+        $defaultWorld = $plugin->getServer()->getWorldManager()->getDefaultWorld();
+        if(!$defaultWorld instanceof World) return;
+
+        $this->handleMembers($skyblock, $defaultWorld, $plugin);
+        $this->handleWorldDeletion($skyblock, $defaultWorld, $plugin);
+        
         $plugin->getSkyBlockManager()->deleteSkyBlock($skyblock->getName());
-        $world = $plugin->getServer()->getWorldManager()->getWorldByName($skyblock->getWorld());
-        if($world instanceof World) {
-            foreach ($world->getPlayers() as $p) {
-                $p->teleport($defaultWorld->getSpawnLocation());
-            }
-            if ($world->isLoaded()) {
-                $folderName = $world->getFolderName();
-                $plugin->getServer()->getWorldManager()->unloadWorld($world);
-                Filesystem::recursiveUnlink($plugin->getServer()->getDataPath() . 'worlds' . DIRECTORY_SEPARATOR . $folderName);
-            }
-        }
+        
         $sender->sendMessage($plugin->getMessages()->getMessage('deleted-sb', [
             '{NAME}' => $skyblockPlayer->getName()
         ]));
+    }
+
+    private function validatePermissions(CommandSender $sender, string $name, SkyBlocksPM $plugin): bool {
+        if ($name !== $sender->getName() && !$sender->hasPermission('skyblockspm.deleteothers')) {
+            $sender->sendMessage($plugin->getMessages()->getMessage('no-perms-delete'));
+            return false;
+        }
+        return true;
+    }
+
+    private function validatePlayer(?Player $skyblockPlayer, CommandSender $sender, SkyBlocksPM $plugin): bool {
+        if (!$skyblockPlayer instanceof Player) {
+            $sender->sendMessage($plugin->getMessages()->getMessage('player-not-online'));
+            return false;
+        }
+        if ($skyblockPlayer->getSkyBlock() == '') {
+            $sender->sendMessage($plugin->getMessages()->getMessage('no-island'));
+            return false;
+        }
+        return true;
+    }
+
+    private function handleMembers(SkyBlock $skyblock, World $defaultWorld, SkyBlocksPM $plugin): void {
+        foreach ($skyblock->getMembers() as $member) {
+            $this->teleportPlayer($member, $defaultWorld, $plugin);
+            $this->handleMemberData($member, $plugin);
+        }
+    }
+
+    private function handleWorldDeletion(SkyBlock $skyblock, World $defaultWorld, SkyBlocksPM $plugin): void {
+        $world = $plugin->getServer()->getWorldManager()->getWorldByName($skyblock->getWorld());
+        if(!$world instanceof World) return;
+
+        foreach ($world->getPlayers() as $player) {
+            $player->teleport($defaultWorld->getSpawnLocation());
+        }
+
+        if ($world->isLoaded()) {
+            $folderName = $world->getFolderName();
+            $plugin->getServer()->getWorldManager()->unloadWorld($world);
+            Filesystem::recursiveUnlink($plugin->getServer()->getDataPath() . 'worlds' . DIRECTORY_SEPARATOR . $folderName);
+        }
+    }
+
+    private function teleportPlayer(string $playerName, World $defaultWorld, SkyBlocksPM $plugin): void {
+        $player = $plugin->getServer()->getPlayerExact($playerName);
+        if ($player instanceof P) {
+            $player->teleport($defaultWorld->getSpawnLocation());
+        }
+    }
+
+    private function handleMemberData(string $member, SkyBlocksPM $plugin): void {
+        if(($mPlayer = $plugin->getPlayerManager()->getPlayer($member)) instanceof Player) {
+            $mPlayer->setSkyBlock('');
+        } else {
+            $plugin->getPlayerManager()->deleteSkyBlockOffline($member);
+        }
     }
 }

@@ -9,14 +9,27 @@ use Ifera\ScoreHud\scoreboard\ScoreTag;
 use pocketmine\player\Player as P;
 use Vecnavium\SkyBlocksPM\player\Player;
 use pocketmine\scheduler\ClosureTask;
-use Vecnavium\SkyBlocksPM\scorehud\ScoreHudListener;
 use Vecnavium\SkyBlocksPM\skyblock\SkyBlock;
 use Vecnavium\SkyBlocksPM\skyblock\SkyBlockRanks;
 use Vecnavium\SkyBlocksPM\SkyBlocksPM;
 
+/**
+ * @phpstan-type PlayerCacheItem Player
+ * @phpstan-type IslandCacheItem SkyBlock
+ */
 class ScoreHudAddon {
-
     protected SkyBlocksPM $plugin;
+    
+    /** @var array<string, PlayerCacheItem> */
+    private array $playerCache = [];
+    
+    /** @var array<string, IslandCacheItem> */
+    private array $islandCache = [];
+    
+    private const CACHE_TTL = 30;
+    
+    /** @var array<string, int> */
+    private array $lastCacheUpdate = [];
 
     public function __construct(SkyBlocksPM $plugin) {
         $this->plugin = $plugin;
@@ -30,92 +43,115 @@ class ScoreHudAddon {
 
     public function onLoad(): void {
         $this->repeat(function() {
-            foreach ($this->plugin->getServer()->getOnlinePlayers() as $player) {
+            $currentPlayers = $this->plugin->getServer()->getOnlinePlayers();
+            
+            /** @var array<string, array<string, string|int>> */
+            $updates = [];
+            
+            foreach ($currentPlayers as $player) {
                 if (!$player->isOnline()) {
                     continue;
                 }
-                (new PlayerTagUpdateEvent($player, new ScoreTag(ScoreHudTags::ISLAND_NAME, strval($this->getIslandName($player->getName())))))->call();
-                (new PlayerTagUpdateEvent($player, new ScoreTag(ScoreHudTags::ISLAND_MEMBERS, strval($this->getOnlineMembers($player->getName())))))->call();
-                (new PlayerTagUpdateEvent($player, new ScoreTag(ScoreHudTags::PLAYER_RANK, strval($this->getPlayerRank($player->getName())))))->call();
+                
+                $playerName = $player->getName();
+                $this->updateCache($playerName);
+                
+                $updates[$playerName] = [
+                    ScoreHudTags::ISLAND_NAME => $this->getIslandName($playerName),
+                    ScoreHudTags::ISLAND_MEMBERS => $this->getOnlineMembers($playerName),
+                    ScoreHudTags::PLAYER_RANK => $this->getPlayerRank($playerName)
+                ];
             }
-        },
-            $this->getUpdateDuration());
+            
+            foreach ($updates as $playerName => $data) {
+                $player = $this->plugin->getServer()->getPlayerExact($playerName);
+                if ($player === null) continue;
+                
+                foreach ($data as $tag => $value) {
+                    if (class_exists(PlayerTagUpdateEvent::class)) {
+                        (new PlayerTagUpdateEvent($player, new ScoreTag($tag, (string)$value)))->call();
+                    }
+                }
+            }
+        }, $this->getUpdateDuration());
     }
 
-    public function getUpdateDuration(): int {
-        $duration = $this->plugin->getConfig()->get("scorehud-tag-update-duration");
-        return $duration;
+    private function updateCache(string $playerName): void {
+        $currentTime = time();
+        
+        if (isset($this->lastCacheUpdate[$playerName]) && 
+            ($currentTime - $this->lastCacheUpdate[$playerName]) < self::CACHE_TTL) {
+            return;
+        }
+
+        $player = $this->getSkyBlockPlayer($playerName);
+        if ($player !== null) {
+            $this->playerCache[$playerName] = $player;
+            $island = $this->getSkyBlock($player);
+            if ($island !== null) {
+                $this->islandCache[$playerName] = $island;
+            } else {
+                unset($this->islandCache[$playerName]);
+            }
+        } else {
+            unset($this->playerCache[$playerName]);
+            unset($this->islandCache[$playerName]);
+        }
+        
+        $this->lastCacheUpdate[$playerName] = $currentTime;
     }
 
     public function getPlayerRank(string $playerName): string {
-        $player = $this->getSkyBlockPlayer($playerName);
-        if (is_null($player)) {
-            return ScoreHudTags::NOT_AVBLE;
+        if (!isset($this->islandCache[$playerName])) {
+            return ScoreHudTags::NOT_AVAILABLE;
         }
-        $island = $this->getSkyBlock($player);
-        if ($island === null) {
-            return ScoreHudTags::NOT_AVBLE;
-        }
+
+        $island = $this->islandCache[$playerName];
         $managers = $island->getManagers();
-        if (in_array($playerName, $managers)) {
+        
+        if (in_array($playerName, $managers, true)) {
             return SkyBlockRanks::MANAGER;
-        } elseif ($island->getLeader() === $playerName) {
-            return SkyBlockRanks::LEADER;
-        } else {
-            return SkyBlockRanks::MEMBER;
         }
+        
+        return $island->getLeader() === $playerName ? SkyBlockRanks::LEADER : SkyBlockRanks::MEMBER;
     }
 
     public function getIslandName(string $playerName): string {
-        $player = $this->getSkyBlockPlayer($playerName);
-        if (is_null($player)) {
-            return ScoreHudTags::NOT_AVBLE;
+        if (!isset($this->islandCache[$playerName])) {
+            return ScoreHudTags::NOT_AVAILABLE;
         }
-        $island = $this->getSkyBlock($player);
-        //var_dump($island);
-        if ($island !== null) {
-            return $island->getName();
-        }
-        return ScoreHudTags::NOT_AVBLE;
+        return $this->islandCache[$playerName]?->getName() ?? ScoreHudTags::NOT_AVAILABLE;
     }
 
     public function getOnlineMembers(string $playerName): int|string {
-        $player = $this->getSkyBlockPlayer($playerName);
-        if (is_null($player)) {
-            return ScoreHudTags::NOT_AVBLE;
-        }
-        $island = $this->getSkyBlock($player);
-
-        if ($island !== null) {
-            $members = $island->getMembers();
-            $onlineMemberCount = 0;
-
-            foreach ($members as $memberName) {
-                $member = $this->plugin->getServer()->getPlayerExact($memberName);
-
-                if ($member instanceof P && $member->isOnline()) {
-                    $onlineMemberCount++;
-                }
-            }
-
-            return $onlineMemberCount;
+        if (!isset($this->islandCache[$playerName])) {
+            return ScoreHudTags::NOT_AVAILABLE;
         }
 
-        return ScoreHudTags::NOT_AVBLE;
+        $island = $this->islandCache[$playerName];
+        $members = $island->getMembers();
+        $server = $this->plugin->getServer();
+        
+        return array_reduce($members, function($count, $memberName) use ($server) {
+            $member = $server->getPlayerExact($memberName);
+            return $count + ($member instanceof P && $member->isOnline() ? 1 : 0);
+        }, 0);
     }
 
     public function getSkyBlock(Player $player): ?SkyBlock {
-        $island = $this->plugin->getSkyBlockManager()->getSkyBlockByUuid($player->getSkyBlock());
-        return $island;
+        return $this->plugin->getSkyBlockManager()->getSkyBlockByUuid($player->getSkyBlock());
     }
+
     public function getSkyBlockPlayer(string $playerName): ?Player {
-        $player = $this->plugin->getPlayerManager()->getPlayer($playerName);
-        return $player;
+        return $this->plugin->getPlayerManager()->getPlayer($playerName);
+    }
+
+    public function getUpdateDuration(): int {
+        return $this->plugin->getConfig()->get("scorehud-tag-update-duration");
     }
 
     public function repeat(callable $callback, int $interval): void {
-        $task = new ClosureTask($callback);
         $scheduler = $this->plugin->getScheduler();
-        $scheduler->scheduleRepeatingTask($task, $interval * 20);
+        $scheduler->scheduleRepeatingTask(new ClosureTask($callback), $interval * 20);
     }
 }

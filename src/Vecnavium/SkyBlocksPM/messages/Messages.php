@@ -22,13 +22,13 @@ class Messages {
 
     /**
      * @param string $msg
-     * @param string[] $args
+     * @param array<string, string> $args
      * @return string
      */
     public function getMessage(string $msg, array $args = []): string {
         $message = strval($this->messages->getNested("messages.$msg"));
         foreach ($args as $key => $value) {
-            $message = str_replace($key, $value, $message);
+            $message = str_replace($key, strval($value), $message);
         }
         return TextFormat::colorize("{$this->prefix} {$this->separator} $message");
     }

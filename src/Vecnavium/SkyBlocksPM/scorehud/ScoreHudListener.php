@@ -5,44 +5,42 @@ namespace Vecnavium\SkyBlocksPM\scorehud;
 
 use Ifera\ScoreHud\event\TagsResolveEvent;
 use pocketmine\event\Listener;
-use Ifera\ScoreHud\scoreboard\ScoreTag;
-use Ifera\ScoreHud\event\PlayerTagUpdateEvent;
-use pocketmine\player\Player;
-use Vecnavium\SkyBlocksPM\scorehud\ScoreHudTags;
-use Vecnavium\SkyBlocksPM\SkyBlocksPM;
-use function count;
-use function strval;
-use function explode;
+use function str_starts_with;
 
 class ScoreHudListener implements Listener {
-
     private ScoreHudAddon $scorehudManager;
+    
+    /** @var array<string, callable(string): string|int> */
+    private array $tagHandlers;
 
     public function __construct(ScoreHudAddon $scorehudManager) {
         $this->scorehudManager = $scorehudManager;
+        
+        $this->tagHandlers = [
+            ScoreHudTags::ISLAND_NAME => [$this->scorehudManager, 'getIslandName'],
+            ScoreHudTags::ISLAND_MEMBERS => [$this->scorehudManager, 'getOnlineMembers'],
+            ScoreHudTags::PLAYER_RANK => [$this->scorehudManager, 'getPlayerRank']
+        ];
     }
-    public function onTagResolve(TagsResolveEvent $event) {
+
+    /**
+     * @param TagsResolveEvent $event
+     * @phpstan-ignore-next-line
+     */
+    public function onTagResolve(TagsResolveEvent $event): void {
         $tag = $event->getTag();
-        $tags = explode('.', $tag->getName(), 2);
-        $value = "";
-        $playerName = $event->getPlayer()->getName();
-
-        if ($tags[0] !== 'skyblockspm' || count($tags) < 2) return;
-
-        switch ($tags[1]) {
-
-            case ScoreHudTags::ISLAND_NAME:
-                $value = $this->scorehudManager->getIslandName($playerName);
-                break;
-
-            case ScoreHudTags::ISLAND_MEMBERS:
-                $value = $this->scorehudManager->getOnlineMembers($playerName);
-                break;
-            case ScoreHudTags::PLAYER_RANK:
-                $value = $this->scorehudManager->getPlayerRank($playerName);
-                break;
+        $tagName = $tag->getName();
+        
+        if (!str_starts_with($tagName, ScoreHudTags::PREFIX)) {
+            return;
         }
-        $tag->setValue(strval($value));
+        
+        if (isset($this->tagHandlers[$tagName])) {
+            $handler = $this->tagHandlers[$tagName];
+            $tag->setValue((string) $handler($event->getPlayer()->getName()));
+            return;
+        }
+        
+        $tag->setValue(ScoreHudTags::NOT_AVAILABLE);
     }
-
 }

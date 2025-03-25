@@ -83,7 +83,6 @@ class SkyBlocksPM extends PluginBase {
         @mkdir($this->getDataFolder() . 'cache/island');
         $this->chat = [];
 
-        $this->getServer()->getAsyncPool()->submitTask(new CheckUpdateTask($this->getDescription()->getName(), $this->getDescription()->getVersion()));
     }
 
     public function onDisable(): void {
@@ -134,7 +133,6 @@ class SkyBlocksPM extends PluginBase {
         if ($status) $this->chat[] = $player->getName();
         else unset($this->chat[array_search($player->getName(), $this->chat, true)]);
     }
-
 
     public function checkScoreHud(): void {
         $isEnabled = $this->getConfig()->get("scorehud"); 

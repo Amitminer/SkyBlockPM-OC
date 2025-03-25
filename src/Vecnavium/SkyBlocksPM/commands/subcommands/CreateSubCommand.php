@@ -14,9 +14,11 @@ use Vecnavium\SkyBlocksPM\player\Player;
 use Vecnavium\SkyBlocksPM\SkyBlocksPM;
 use function strval;
 
-class CreateSubCommand extends BaseSubCommand {
+class CreateSubCommand extends BaseSubCommand
+{
 
-    protected function prepare(): void {
+    protected function prepare(): void
+    {
         $this->setPermission('skyblockspm.create');
         $this->registerArgument(0, new RawStringArgument('name'));
     }
@@ -29,14 +31,15 @@ class CreateSubCommand extends BaseSubCommand {
      *
      * @phpstan-ignore-next-line
      */
-    public function onRun(CommandSender $sender, string $aliasUsed, array $args): void {
+    public function onRun(CommandSender $sender, string $aliasUsed, array $args): void
+    {
         /** @var SkyBlocksPM $plugin */
         $plugin = $this->getOwningPlugin();
-        
+
         if (!$sender instanceof P) return;
 
         $player = $plugin->getPlayerManager()->getPlayer($sender->getName());
-        if(!$player instanceof Player) return;
+        if (!$player instanceof Player) return;
 
         if ($player->getSkyBlock() !== '') {
             $sender->sendMessage($plugin->getMessages()->getMessage('have-sb'));
@@ -47,9 +50,13 @@ class CreateSubCommand extends BaseSubCommand {
             return;
         }
         $sender->sendMessage($plugin->getMessages()->getMessage('skyblock-creating'));
-        $id = Uuid::uuid4()->toString();
-        $player->setSkyBlock($id);
-        $plugin->getGenerator()->generateIsland($sender, $id, strval($args['name'])); // Name validation?
-    }
 
+        $playerName = strtolower($player->getName());
+        $providedName = strval($args['name']);
+        $randomHash = substr(Uuid::uuid4()->toString(), 0, 4); 
+        $id = "{$playerName}-{$providedName}-{$randomHash}";
+
+        $player->setSkyBlock($id);
+        $plugin->getGenerator()->generateIsland($sender, $id, $providedName);
+    }
 }
